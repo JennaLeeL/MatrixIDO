@@ -5,6 +5,7 @@
 #include <string.h>
 #include <arpa/inet.h>
 #include <sys/socket.h>
+#include <math.h>
 
 // Adresses 
 #define ADR_I2C 0x70
@@ -15,6 +16,19 @@
 #define PORT 9991
 //#define DEST_IP "10.10.0.236"
 #define BUFFER_SIZE 1024
+
+#define BUTTON_PIN 17 
+
+void buttonPressed(int gpio, int level, uint32_t tick, int socket_dist) {
+    char buffer[2] = {0};
+    if (level == 0) {
+        buffer[0] = '0'; 
+    } else {
+        buffer[0] = '1'; 
+    }
+    send(socket_dist, buffer, 1, 0);
+}
+
 
 int main() {
 
@@ -58,25 +72,45 @@ int main() {
     i2cWriteByteData(handle, ADR_SYS_MATRICE | 1, 0x00);
     i2cWriteByteData(handle, ADR_AFFICHAGE_MATRICE | 1, 0x00);
 
+    int globalNum = 0x00;
+
+    // Set the button pin as input
+    gpioSetMode(BUTTON_PIN, PI_INPUT);
+
+    gpioSetPullUpDown(BUTTON_PIN, PI_PUD_UP);
+
+
     while(1) {
         int datalen;
+
         // Stocker le message
         datalen = read(socket_dist, buffer, BUFFER_SIZE);   
-	    printf("Reçu: %s", buffer);
+        printf("Reçu: %s\n", buffer);
+
+        char *message2;
+        char *message1 = strtok ( buffer, ":");
+        printf("Reçu: %s\n", message1);
+        message2 = strtok (NULL, ":");
+        printf("Reçu: %s\n", message2);
+        
 
         int number = atoi(buffer);
-         printf("Received number: %d\n", number);
+        int number1 = pow(2, number-1);
 
-	    i2cWriteByteData(handle, 0x00, number); 
+        globalNum  ^= number1;
+
+        printf("Received number: %d\n", number);
+
+        
+        i2cWriteByteData(handle, 0x00, globalNum); 
         fflush(stdout); 
 
-	}
+    }
 
     close(socket_dist);  
     close(socket_local);
 
     i2cClose(handle);
-
 
     gpioTerminate();
     return 0;
