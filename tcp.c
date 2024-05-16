@@ -97,12 +97,23 @@ int main() {
         int number = atoi(buffer);
         int number1 = pow(2, number-1);
 
-        globalNum  ^= number1;
+        if (strcmp(message2, "0") == 0 ) {
+            if ((number >> atoi(message1)) & 1) {
+            printf("Already on");
+            }
+            else {
+            printf("Now on");
+            globalNum  ^= number1;
+            i2cWriteByteData(handle, 0x00, globalNum); 
+            }
+        }
+        else {
 
-        printf("Received number: %d\n", number);
+        }
 
-        
-        i2cWriteByteData(handle, 0x00, globalNum); 
+        // globalNum  ^= number1;a
+        // printf("Received number: %d\n", number);
+        // i2cWriteByteData(handle, 0x00, globalNum); 
         fflush(stdout); 
 
     }
