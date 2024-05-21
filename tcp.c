@@ -5,40 +5,55 @@
 #include <string.h>
 #include <arpa/inet.h>
 #include <sys/socket.h>
+#include <pthread.h>
 #include <math.h>
 
-// Adresses 
+// gcc -o tcp tcp.c -lpigpio -lm  -lpthread
+
+// Addresses
 #define ADR_I2C 0x70
 #define ADR_SYS_MATRICE 0x20
 #define ADR_AFFICHAGE_MATRICE 0x80
 
-// TCP 
+// TCP
 #define PORT 9991
-//#define DEST_IP "10.10.0.236"
 #define BUFFER_SIZE 1024
 
-#define BUTTON_PIN 17 
+#define BUTTON_PIN 17
 
-void buttonPressed(int gpio, int level, uint32_t tick, int socket_dist) {
+int handle;
+int globalNum = 0x00;
+int socket_dist;
+
+void buttonPressed(int gpio, int level, uint32_t tick, void *user_data) {
     char buffer[2] = {0};
     if (level == 0) {
-        buffer[0] = '0'; 
+        buffer[0] = '0';
     } else {
-        buffer[0] = '1'; 
+        buffer[0] = '1';
     }
     send(socket_dist, buffer, 1, 0);
+    printf("Boutton : %c\n", buffer[0]);
 }
 
+void *buttonThread(void *arg) {
+    // https://abyz.me.uk/rpi/pigpio/cif.html
+    
+    gpioSetAlertFuncEx(BUTTON_PIN, buttonPressed, NULL);
+    while (1) {
+        sleep(1); 
+    }
+    return NULL;
+}
 
 int main() {
-
-    int socket_local, socket_dist;
+    int socket_local;
     struct sockaddr_in address;
     int addrlen = sizeof(address);
+    pthread_t btnThread;
     char buffer[BUFFER_SIZE] = {0};
-    int handle;
 
-    // Initialiser pigpio
+    // Initialize pigpio
     if (gpioInitialise() < 0) {
         printf("Erreur d'initialisation pigpio\n");
         return 1;
@@ -63,7 +78,6 @@ int main() {
     // Associer le socket à l'adresse de l'interface
     bind(socket_local, (struct sockaddr *)&address, sizeof(address));
 
-
     // Attendre une connexion entrante
     listen(socket_local, 3);
     socket_dist = accept(socket_local, (struct sockaddr *)&address, (socklen_t*)&addrlen);
@@ -72,57 +86,55 @@ int main() {
     i2cWriteByteData(handle, ADR_SYS_MATRICE | 1, 0x00);
     i2cWriteByteData(handle, ADR_AFFICHAGE_MATRICE | 1, 0x00);
 
-    int globalNum = 0x00;
-
-    // Set the button pin as input
+    // Bouton PIN
     gpioSetMode(BUTTON_PIN, PI_INPUT);
-
     gpioSetPullUpDown(BUTTON_PIN, PI_PUD_UP);
 
+    // Thread
+    pthread_create(&btnThread, NULL, buttonThread, NULL);
 
-    while(1) {
-        int datalen;
 
-        // Stocker le message
-        datalen = read(socket_dist, buffer, BUFFER_SIZE);   
+    while (1) {
+        int datalen = read(socket_dist, buffer, BUFFER_SIZE);
+        if (datalen <= 0) {
+            printf("Connection OFF\n");
+            break;
+        }
+
         printf("Reçu: %s\n", buffer);
 
         char *message2;
-        char *message1 = strtok ( buffer, ":");
-        printf("Reçu: %s\n", message1);
-        message2 = strtok (NULL, ":");
-        printf("Reçu: %s\n", message2);
-        
+        char *message1 = strtok(buffer, ":");
+        message2 = strtok(NULL, ":");
 
-        int number = atoi(buffer);
-        int number1 = pow(2, number-1);
+        int number = atoi(message1);
+        int number1 = pow(2, number - 1);
 
-        if (strcmp(message2, "0") == 0 ) {
-            if ((number >> atoi(message1)) & 1) {
-            printf("Already on");
+        if (strcmp(message2, "0\n") == 0) {
+            if ((globalNum >> (number - 1)) & 1) {
+                printf("Already on\n");
+            } else {
+                globalNum ^= number1;
+                i2cWriteByteData(handle, 0x00, globalNum);
+            }
+        } else {
+            if ((globalNum >> (number -1)) & 1 ) {
+                globalNum ^= number1;
+                i2cWriteByteData(handle, 0x00, globalNum);
             }
             else {
-            printf("Now on");
-            globalNum  ^= number1;
-            i2cWriteByteData(handle, 0x00, globalNum); 
+                printf("Already off\n");
             }
         }
-        else {
 
-        }
-
-        // globalNum  ^= number1;a
-        // printf("Received number: %d\n", number);
-        // i2cWriteByteData(handle, 0x00, globalNum); 
-        fflush(stdout); 
-
+        fflush(stdout);
     }
 
-    close(socket_dist);  
+    // Tout fermer
+    close(socket_dist);
     close(socket_local);
-
     i2cClose(handle);
-
     gpioTerminate();
+    
     return 0;
 }
